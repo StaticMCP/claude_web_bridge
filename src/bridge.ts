@@ -9,16 +9,27 @@ import cors from 'cors';
 import fs from 'fs/promises';
 import path from 'path';
 
-const staticSourcePath = process.argv[2];
-const isHostedMode = !staticSourcePath;
-const isRemoteUrl = staticSourcePath?.startsWith('http://') || staticSourcePath?.startsWith('https://');
+const isTestMode = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
 
-if (!isHostedMode) {
-  const resolvedPath = isRemoteUrl ? staticSourcePath : path.resolve(staticSourcePath);
-  console.log(`StaticMCP Bridge starting with ${isRemoteUrl ? 'URL' : 'folder'}: ${resolvedPath}`);
+function logError(message: string, error?: any) {
+  if (!isTestMode) {
+    console.error(message, error);
+  }
 }
 
-interface McpManifest {
+function logWarn(message: string) {
+  if (!isTestMode) {
+    console.warn(message);
+  }
+}
+
+function logInfo(message: string) {
+  if (!isTestMode) {
+    console.log(message);
+  }
+}
+
+export interface McpManifest {
   name: string;
   version: string;
   description?: string;
@@ -26,20 +37,27 @@ interface McpManifest {
   resources?: StaticResource[];
 }
 
-interface StaticResource {
+export interface StaticResource {
   uri: string;
   name: string;
   description?: string;
   mimeType?: string;
 }
 
-interface StaticTool {
+export interface StaticTool {
   name: string;
   description?: string;
   inputSchema: any;
 }
 
-async function readFile(filePath: string): Promise<string> {
+export interface BridgeConfig {
+  staticSourcePath?: string;
+  isHostedMode: boolean;
+  isRemoteUrl: boolean;
+  port: number;
+}
+
+export async function readFile(filePath: string): Promise<string> {
   if (filePath.startsWith('http')) {
     const response = await fetch(filePath);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -49,7 +67,7 @@ async function readFile(filePath: string): Promise<string> {
   }
 }
 
-async function readDir(dirPath: string): Promise<string[]> {
+export async function readDir(dirPath: string, isRemoteUrl: boolean): Promise<string[]> {
   if (isRemoteUrl) {
     throw new Error('Directory listing not supported for remote URLs');
   } else {
@@ -58,7 +76,7 @@ async function readDir(dirPath: string): Promise<string[]> {
   }
 }
 
-async function pathExists(filePath: string): Promise<boolean> {
+export async function pathExists(filePath: string): Promise<boolean> {
   if (filePath.startsWith('http')) {
     try {
       const response = await fetch(filePath, { method: 'HEAD' });
@@ -76,7 +94,7 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-function joinPath(basePath: string, ...segments: string[]): string {
+export function joinPath(basePath: string, ...segments: string[]): string {
   if (basePath.startsWith('http')) {
     const baseUrl = basePath.endsWith('/') ? basePath : basePath + '/';
     return new URL(segments.join('/'), baseUrl).href;
@@ -85,7 +103,7 @@ function joinPath(basePath: string, ...segments: string[]): string {
   }
 }
 
-async function loadManifest(sourcePath: string): Promise<McpManifest> {
+export async function loadManifest(sourcePath: string): Promise<McpManifest> {
   try {
     const manifestPath = joinPath(sourcePath, 'mcp.json');
     const manifestContent = await readFile(manifestPath);
@@ -110,14 +128,14 @@ async function loadManifest(sourcePath: string): Promise<McpManifest> {
   }
 }
 
-async function discoverTools(sourcePath: string): Promise<StaticTool[]> {
+export async function discoverTools(sourcePath: string, isRemoteUrl: boolean): Promise<StaticTool[]> {
   try {
-    if (sourcePath.startsWith('http')) {
+    if (isRemoteUrl) {
       return [];
     }
     
     const toolsDir = joinPath(sourcePath, 'tools');
-    const toolDirs = await readDir(toolsDir);
+    const toolDirs = await readDir(toolsDir, isRemoteUrl);
     const tools: StaticTool[] = [];
     
     for (const toolName of toolDirs) {
@@ -144,7 +162,7 @@ async function discoverTools(sourcePath: string): Promise<StaticTool[]> {
   }
 }
 
-async function discoverToolsFromManifest(manifest: McpManifest): Promise<StaticTool[]> {
+export async function discoverToolsFromManifest(manifest: McpManifest): Promise<StaticTool[]> {
   if (!manifest.tools || !Array.isArray(manifest.tools)) return [];
   
   const tools: StaticTool[] = [];
@@ -164,7 +182,7 @@ async function discoverToolsFromManifest(manifest: McpManifest): Promise<StaticT
   return tools;
 }
 
-async function discoverResourcesFromManifest(manifest: McpManifest): Promise<StaticResource[]> {
+export async function discoverResourcesFromManifest(manifest: McpManifest): Promise<StaticResource[]> {
   if (!manifest.resources || !Array.isArray(manifest.resources)) return [];
   
   const resources: StaticResource[] = [];
@@ -181,14 +199,14 @@ async function discoverResourcesFromManifest(manifest: McpManifest): Promise<Sta
   return resources;
 }
 
-async function discoverResources(sourcePath: string): Promise<StaticResource[]> {
+export async function discoverResources(sourcePath: string, isRemoteUrl: boolean): Promise<StaticResource[]> {
   try {
     if (isRemoteUrl || sourcePath.startsWith('http')) {
       return [];
     }
     
     const resourcesDir = joinPath(sourcePath, 'resources');
-    const files = await readDir(resourcesDir);
+    const files = await readDir(resourcesDir, isRemoteUrl);
     const resources: StaticResource[] = [];
     
     for (const file of files) {
@@ -209,7 +227,7 @@ async function discoverResources(sourcePath: string): Promise<StaticResource[]> 
   }
 }
 
-async function readStaticResource(sourcePath: string, uri: string): Promise<any> {
+export async function readStaticResource(sourcePath: string, uri: string): Promise<any> {
   const filename = uri.replace('file://', '');
   const resourcePath = joinPath(sourcePath, 'resources', `${filename}.json`);
   
@@ -217,7 +235,7 @@ async function readStaticResource(sourcePath: string, uri: string): Promise<any>
   return JSON.parse(content);
 }
 
-async function executeStaticTool(sourcePath: string, name: string, arguments_: any): Promise<any> {
+export async function executeStaticTool(sourcePath: string, name: string, arguments_: any): Promise<any> {
   let toolPath = joinPath(sourcePath, 'tools', name);
   
   const sortedArgs = Object.entries(arguments_ || {}).sort(([a], [b]) => a.localeCompare(b));
@@ -231,7 +249,25 @@ async function executeStaticTool(sourcePath: string, name: string, arguments_: a
   return JSON.parse(content);
 }
 
-async function createServer(sourcePath: string): Promise<McpServer> {
+export function sanitizeToolName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 64);
+}
+
+export function parseConfig(): BridgeConfig {
+  const staticSourcePath = process.argv[2];
+  const isHostedMode = !staticSourcePath;
+  const isRemoteUrl = staticSourcePath?.startsWith('http://') || staticSourcePath?.startsWith('https://');
+  const port = parseInt(process.env.PORT || '3000', 10);
+
+  return {
+    staticSourcePath,
+    isHostedMode,
+    isRemoteUrl,
+    port
+  };
+}
+
+export async function createServer(sourcePath: string, isRemoteUrl: boolean): Promise<McpServer> {
   const manifest = await loadManifest(sourcePath);
   const server = new McpServer(
     {
@@ -247,10 +283,9 @@ async function createServer(sourcePath: string): Promise<McpServer> {
     }
   );
 
-  const isRemote = sourcePath.startsWith('http');
-  const tools = isRemote 
+  const tools = isRemoteUrl 
     ? await discoverToolsFromManifest(manifest)
-    : await discoverTools(sourcePath);
+    : await discoverTools(sourcePath, isRemoteUrl);
 
   for (const tool of tools) {
     server.registerTool(
@@ -267,9 +302,9 @@ async function createServer(sourcePath: string): Promise<McpServer> {
     );
   }
 
-  const resources = isRemote
+  const resources = isRemoteUrl
     ? await discoverResourcesFromManifest(manifest)
-    : await discoverResources(sourcePath);
+    : await discoverResources(sourcePath, isRemoteUrl);
     
   for (const resource of resources) {
     server.registerResource(
@@ -294,25 +329,26 @@ async function createServer(sourcePath: string): Promise<McpServer> {
   return server;
 }
 
-const app = express();
-app.use(express.json());
+export function createExpressApp(): express.Application {
+  const app = express();
+  app.use(express.json());
+  app.use(cors({
+    origin: '*',
+    exposedHeaders: ['Mcp-Session-Id']
+  }));
+  return app;
+}
 
-app.use(cors({
-  origin: '*',
-  exposedHeaders: ['Mcp-Session-Id']
-}));
+export function setupHomeRoute(app: express.Application, config: BridgeConfig): void {
+  app.get('/', (req: Request, res: Response) => {
+    const endpoint = config.isHostedMode ? '/mcp?url=<staticmcp-url>' : '/mcp';
+    const example = config.isHostedMode 
+      ? 'https://bridge.staticmcp.com/mcp?url=https://staticmcp.com/mcp'
+      : `http://localhost:${config.port}/mcp`;
 
-const transports: Record<string, StreamableHTTPServerTransport> = {};
+    res.type('text/plain').send(`StaticMCP Bridge Server
 
-app.get('/', (req: Request, res: Response) => {
-  const endpoint = isHostedMode ? '/mcp?url=<staticmcp-url>' : '/mcp';
-  const example = isHostedMode 
-    ? 'https://bridge.staticmcp.com/mcp?url=https://staticmcp.com/mcp'
-    : `http://localhost:${PORT}/mcp`;
-
-  res.type('text/plain').send(`StaticMCP Bridge Server
-
-${isHostedMode ? 'Hosted Mode - Specify StaticMCP URL as query parameter' : `CLI Mode - Serving: ${staticSourcePath}`}
+${config.isHostedMode ? 'Hosted Mode - Specify StaticMCP URL as query parameter' : `CLI Mode - Serving: ${config.staticSourcePath}`}
 
 Usage:
   MCP Endpoint: ${endpoint}
@@ -321,7 +357,7 @@ Usage:
 To connect with MCP Inspector:
   npx @modelcontextprotocol/inspector ${example}
 
-${isHostedMode ? 'URL Parameter: ?url=<staticmcp-site-url>' : `Static source: ${staticSourcePath}`}
+${config.isHostedMode ? 'URL Parameter: ?url=<staticmcp-site-url>' : `Static source: ${config.staticSourcePath}`}
 
 File structure expected:
   mcp.json              - Optional manifest
@@ -332,141 +368,176 @@ File structure expected:
   resources/            - Resource files
     filename.json       - Resource content
 `);
-});
-
-async function handleMcpRequest(req: Request, res: Response, sourcePath: string) {
-  try {
-    const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    let transport: StreamableHTTPServerTransport;
-
-    if (sessionId && transports[sessionId]) {
-      transport = transports[sessionId];
-    } else if (!sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
-      const eventStore = new InMemoryEventStore();
-      transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        eventStore,
-        onsessioninitialized: (sessionId) => {
-          transports[sessionId] = transport;
-        }
-      });
-
-      transport.onclose = () => {
-        const sid = transport.sessionId;
-        if (sid && transports[sid]) {
-          delete transports[sid];
-        }
-      };
-
-      const server = await createServer(sourcePath);
-      await server.connect(transport);
-    } else {
-      res.status(400).json({
-        jsonrpc: '2.0',
-        error: {
-          code: -32000,
-          message: 'Bad Request: No valid session ID provided or invalid initialization request',
-        },
-        id: null,
-      });
-      return;
-    }
-
-    await transport.handleRequest(req, res, req.body);
-  } catch (error) {
-    console.error('Error handling MCP request:', error);
-    if (!res.headersSent) {
-      res.status(500).json({
-        jsonrpc: '2.0',
-        error: {
-          code: -32603,
-          message: 'Internal server error',
-        },
-        id: null,
-      });
-    }
-  }
-}
-
-if (isHostedMode) {
-  app.all('/mcp', async (req: Request, res: Response) => {
-    const urlParam = req.query.url as string;
-    if (!urlParam) {
-      res.status(400).json({
-        error: 'Missing required URL parameter',
-        usage: 'GET /mcp?url=https://staticmcp.com/mcp'
-      });
-      return;
-    }
-
-    try {
-      new URL(urlParam);
-    } catch {
-      res.status(400).json({
-        error: 'Invalid URL parameter',
-        provided: urlParam
-      });
-      return;
-    }
-
-    await handleMcpRequest(req, res, urlParam);
-  });
-} else {
-  app.all('/mcp', async (req: Request, res: Response) => {
-    const sourcePath = isRemoteUrl ? staticSourcePath : path.resolve(staticSourcePath);
-    await handleMcpRequest(req, res, sourcePath);
   });
 }
 
-const PORT = process.env.PORT || 3000;
+export class TransportManager {
+  private transports: Record<string, StreamableHTTPServerTransport> = {};
 
-if (isHostedMode) {
-  app.listen(PORT, () => {
-    console.log(`StaticMCP Hosted Bridge listening on port ${PORT}`);
-    console.log(`Usage: GET /mcp?url=<staticmcp-url>`);
-  });
-} else {
-  const validateAndStart = async () => {
+  async handleMcpRequest(req: Request, res: Response, sourcePath: string, isRemoteUrl: boolean): Promise<void> {
     try {
-      if (isRemoteUrl) {
-        const manifestExists = await pathExists(joinPath(staticSourcePath, 'mcp.json'));
-        if (!manifestExists) {
-          console.warn('Warning: mcp.json not found at remote URL, using defaults');
-        }
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      let transport: StreamableHTTPServerTransport;
+
+      if (sessionId && this.transports[sessionId]) {
+        transport = this.transports[sessionId];
+      } else if (!sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
+        const eventStore = new InMemoryEventStore();
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          eventStore,
+          onsessioninitialized: (sessionId) => {
+            this.transports[sessionId] = transport;
+          }
+        });
+
+        transport.onclose = () => {
+          const sid = transport.sessionId;
+          if (sid && this.transports[sid]) {
+            delete this.transports[sid];
+          }
+        };
+
+        const server = await createServer(sourcePath, isRemoteUrl);
+        await server.connect(transport);
       } else {
-        await fs.access(path.resolve(staticSourcePath));
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32000,
+            message: 'Bad Request: No valid session ID provided or invalid initialization request',
+          },
+          id: null,
+        });
+        return;
       }
-      
-      const manifest = await loadManifest(isRemoteUrl ? staticSourcePath : path.resolve(staticSourcePath));
-      const tools = await discoverTools(isRemoteUrl ? staticSourcePath : path.resolve(staticSourcePath));
-      const resources = await discoverResources(isRemoteUrl ? staticSourcePath : path.resolve(staticSourcePath));
-      
-      app.listen(PORT, () => {
-        console.log(`StaticMCP Bridge server listening on port ${PORT}`);
-        console.log(`Serving from: ${isRemoteUrl ? staticSourcePath : path.resolve(staticSourcePath)}`);
-        console.log(`Available tools: ${tools.map(t => t.name).join(', ') || 'none'}`);
-        console.log(`Available resources: ${resources.length} resources`);
-        console.log(`MCP Endpoint: http://localhost:${PORT}/mcp`);
-      });
-    } catch (error) {
-      console.error(`Error: StaticMCP source not accessible: ${staticSourcePath}`);
-      console.error(error instanceof Error ? error.message : error);
-      process.exit(1);
-    }
-  };
-  
-  validateAndStart();
-}
 
-process.on('SIGINT', async () => {
-  console.log('Shutting down StaticMCP Bridge server...');
-  for (const sessionId in transports) {
-    try {
-      await transports[sessionId].close();
-      delete transports[sessionId];
+      await transport.handleRequest(req, res, req.body);
     } catch (error) {
-      console.error(`Error closing transport for session ${sessionId}:`, error);
+      logError('Error handling MCP request:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32603,
+            message: 'Internal server error',
+          },
+          id: null,
+        });
+      }
     }
   }
-  process.exit(0);
-});
+
+  async closeAllTransports(): Promise<void> {
+    for (const sessionId in this.transports) {
+      try {
+        await this.transports[sessionId].close();
+        delete this.transports[sessionId];
+      } catch (error) {
+        logError(`Error closing transport for session ${sessionId}:`, error);
+      }
+    }
+  }
+}
+
+export function setupMcpRoutes(app: express.Application, config: BridgeConfig, transportManager: TransportManager): void {
+  if (config.isHostedMode) {
+    app.all('/mcp', async (req: Request, res: Response) => {
+      const urlParam = req.query.url as string;
+      if (!urlParam) {
+        res.status(400).json({
+          error: 'Missing required URL parameter',
+          usage: 'GET /mcp?url=https://staticmcp.com/mcp'
+        });
+        return;
+      }
+
+      try {
+        new URL(urlParam);
+      } catch {
+        res.status(400).json({
+          error: 'Invalid URL parameter',
+          provided: urlParam
+        });
+        return;
+      }
+
+      await transportManager.handleMcpRequest(req, res, urlParam, true);
+    });
+  } else {
+    app.all('/mcp', async (req: Request, res: Response) => {
+      const sourcePath = config.isRemoteUrl ? config.staticSourcePath! : path.resolve(config.staticSourcePath!);
+      await transportManager.handleMcpRequest(req, res, sourcePath, config.isRemoteUrl);
+    });
+  }
+}
+
+export async function validateSourcePath(config: BridgeConfig): Promise<void> {
+  if (config.isHostedMode) return;
+
+  try {
+    if (config.isRemoteUrl) {
+      const manifestExists = await pathExists(joinPath(config.staticSourcePath!, 'mcp.json'));
+      if (!manifestExists) {
+        logWarn('Warning: mcp.json not found at remote URL, using defaults');
+      }
+    } else {
+      await fs.access(path.resolve(config.staticSourcePath!));
+    }
+  } catch (error) {
+    logError(`Error: StaticMCP source not accessible: ${config.staticSourcePath}`);
+    logError(error instanceof Error ? error.message : error as string);
+    process.exit(1);
+  }
+}
+
+export async function startServer(config: BridgeConfig): Promise<{ app: express.Application, transportManager: TransportManager }> {
+  const app = createExpressApp();
+  const transportManager = new TransportManager();
+  
+  setupHomeRoute(app, config);
+  setupMcpRoutes(app, config, transportManager);
+
+  if (!config.isHostedMode) {
+    await validateSourcePath(config);
+    
+    const sourcePath = config.isRemoteUrl ? config.staticSourcePath! : path.resolve(config.staticSourcePath!);
+    const manifest = await loadManifest(sourcePath);
+    const tools = await discoverTools(sourcePath, config.isRemoteUrl);
+    const resources = await discoverResources(sourcePath, config.isRemoteUrl);
+    
+    logInfo(`StaticMCP Bridge server starting on port ${config.port}`);
+    logInfo(`Serving from: ${sourcePath}`);
+    logInfo(`Available tools: ${tools.map(t => t.name).join(', ') || 'none'}`);
+    logInfo(`Available resources: ${resources.length} resources`);
+    logInfo(`MCP Endpoint: http://localhost:${config.port}/mcp`);
+  } else {
+    logInfo(`StaticMCP Hosted Bridge starting on port ${config.port}`);
+    logInfo(`Usage: GET /mcp?url=<staticmcp-url>`);
+  }
+
+  return { app, transportManager };
+}
+
+export async function main(): Promise<void> {
+  const config = parseConfig();
+  
+  if (!config.isHostedMode) {
+    const resolvedPath = config.isRemoteUrl ? config.staticSourcePath : path.resolve(config.staticSourcePath!);
+    logInfo(`StaticMCP Bridge starting with ${config.isRemoteUrl ? 'URL' : 'folder'}: ${resolvedPath}`);
+  }
+
+  const { app, transportManager } = await startServer(config);
+  
+  app.listen(config.port);
+
+  process.on('SIGINT', async () => {
+    logInfo('Shutting down StaticMCP Bridge server...');
+    await transportManager.closeAllTransports();
+    process.exit(0);
+  });
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(console.error);
+}
