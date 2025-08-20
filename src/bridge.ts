@@ -240,13 +240,66 @@ export async function executeStaticTool(sourcePath: string, name: string, argume
   
   const sortedArgs = Object.entries(arguments_ || {}).sort(([a], [b]) => a.localeCompare(b));
   for (const [key, value] of sortedArgs) {
-    toolPath = joinPath(toolPath, String(value));
+    const normalizedValue = normalizePathSegment(String(value));
+    toolPath = await findBestMatchPath(toolPath, normalizedValue);
   }
   
   toolPath = `${toolPath}.json`;
   
   const content = await readFile(toolPath);
   return JSON.parse(content);
+}
+
+export function normalizePathSegment(segment: string): string {
+  return segment.trim().replace(/\s+/g, ' ');
+}
+
+export function encodeFilename(title: string): string {
+  const normalized = title.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  
+  const safe = normalized.toLowerCase()
+    .replace(/[^a-z0-9\-_]/g, '_')
+    .replace(/\s+/g, '_');
+  
+  if (safe.length <= 200) return safe;
+  
+  const hash = simpleHash(title).toString(16).padStart(16, '0');
+  return safe.substring(0, 183) + '_' + hash;
+}
+
+function simpleHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+}
+
+export async function findBestMatchPath(basePath: string, segment: string): Promise<string> {
+  const normalizedSegment = normalizePathSegment(segment);
+  
+  const variations = [
+    encodeFilename(segment),
+    encodeFilename(normalizedSegment),
+    segment,
+    normalizedSegment,
+    normalizedSegment.replace(/\s+/g, '_'),
+    normalizedSegment.replace(/_+/g, ' ')
+  ];
+  
+  const uniqueVariations = [...new Set(variations)];
+  
+  for (const variation of uniqueVariations) {
+    const variationPath = joinPath(basePath, variation);
+    if (await pathExists(variationPath)) {
+      return variationPath;
+    }
+  }
+  
+  return joinPath(basePath, encodeFilename(segment));
 }
 
 export function sanitizeToolName(name: string): string {
