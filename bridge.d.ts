@@ -35,6 +35,9 @@ export declare function discoverResourcesFromManifest(manifest: McpManifest): Pr
 export declare function discoverResources(sourcePath: string, isRemoteUrl: boolean): Promise<StaticResource[]>;
 export declare function readStaticResource(sourcePath: string, uri: string): Promise<any>;
 export declare function executeStaticTool(sourcePath: string, name: string, arguments_: any): Promise<any>;
+export declare function normalizePathSegment(segment: string): string;
+export declare function encodeFilename(title: string): string;
+export declare function findBestMatchPath(basePath: string, segment: string): Promise<string>;
 export declare function sanitizeToolName(name: string): string;
 export declare function parseConfig(): BridgeConfig;
 export declare function createServer(sourcePath: string, isRemoteUrl: boolean): Promise<McpServer>;
