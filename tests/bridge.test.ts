@@ -14,6 +14,8 @@ import {
   discoverResources,
   readStaticResource,
   executeStaticTool,
+  normalizePathSegment,
+  encodeFilename,
   sanitizeToolName,
   parseConfig,
   createServer,
@@ -419,7 +421,104 @@ describe('Bridge Core Functions', () => {
       };
       await executeStaticTool('/source', 'test-tool', args);
       
-      expect(fs.readFile).toHaveBeenCalledWith('/source/tools/test-tool/true/null/42/test value.json', 'utf-8');
+      expect(fs.readFile).toHaveBeenCalledWith('/source/tools/test-tool/true/null/42/test_value.json', 'utf-8');
+    });
+  });
+
+  describe('normalizePathSegment', () => {
+    it('should trim whitespace from segments', () => {
+      expect(normalizePathSegment('  hello world  ')).toBe('hello world');
+    });
+
+    it('should normalize multiple spaces to single space', () => {
+      expect(normalizePathSegment('hello    world')).toBe('hello world');
+    });
+
+    it('should handle mixed whitespace', () => {
+      expect(normalizePathSegment('  hello   \t  world  ')).toBe('hello world');
+    });
+  });
+
+  describe('encodeFilename', () => {
+    it('should handle basic encoding rules', () => {
+      expect(encodeFilename('Hello World')).toBe('hello_world');
+      expect(encodeFilename('COVID-19 pandemic')).toBe('covid-19_pandemic');
+      expect(encodeFilename('King George III')).toBe('king_george_iii');
+    });
+
+    it('should remove accents and normalize unicode', () => {
+      expect(encodeFilename('François Mitterrand')).toBe('francois_mitterrand');
+      expect(encodeFilename('José María Aznar')).toBe('jose_maria_aznar');
+    });
+
+    it('should replace invalid characters with underscores', () => {
+      expect(encodeFilename('Hello@World!')).toBe('hello_world_');
+      expect(encodeFilename('Test & Development')).toBe('test___development');
+    });
+
+    it('should handle long filenames with hash', () => {
+      const longTitle = 'A'.repeat(220);
+      const encoded = encodeFilename(longTitle);
+      expect(encoded.length).toBe(200);
+      expect(encoded.includes('_')).toBe(true);
+      expect(encoded.substring(183, 184)).toBe('_');
+    });
+
+    it('should produce consistent hashes for same input', () => {
+      const title = 'Very Long Title That Exceeds Limit';
+      const encoded1 = encodeFilename(title);
+      const encoded2 = encodeFilename(title);
+      expect(encoded1).toBe(encoded2);
+    });
+  });
+
+  describe('executeStaticTool with filename encoding', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('should encode user input to find files', async () => {
+      vi.mocked(path.join).mockImplementation((...args) => args.join('/'));
+      vi.mocked(fs.access).mockResolvedValue(undefined);
+      vi.mocked(fs.readFile).mockResolvedValue('{"result": "success"}');
+      
+      const result = await executeStaticTool('/source', 'test-tool', { arg: 'Hello World' });
+      
+      expect(result).toEqual({ result: 'success' });
+      expect(fs.readFile).toHaveBeenCalledWith('/source/tools/test-tool/hello_world.json', 'utf-8');
+    });
+
+    it('should encode accented characters', async () => {
+      vi.mocked(path.join).mockImplementation((...args) => args.join('/'));
+      vi.mocked(fs.access).mockResolvedValue(undefined);
+      vi.mocked(fs.readFile).mockResolvedValue('{"result": "found_encoded"}');
+      
+      const result = await executeStaticTool('/source', 'test-tool', { arg: 'François Mitterrand' });
+      
+      expect(result).toEqual({ result: 'found_encoded' });
+      expect(fs.readFile).toHaveBeenCalledWith('/source/tools/test-tool/francois_mitterrand.json', 'utf-8');
+    });
+
+    it('should encode complex titles with special characters', async () => {
+      vi.mocked(path.join).mockImplementation((...args) => args.join('/'));
+      vi.mocked(fs.access).mockResolvedValue(undefined);
+      vi.mocked(fs.readFile).mockResolvedValue('{"result": "found_complex"}');
+      
+      const result = await executeStaticTool('/source', 'test-tool', { arg: 'José María & COVID-19!' });
+      
+      expect(result).toEqual({ result: 'found_complex' });
+      expect(fs.readFile).toHaveBeenCalledWith('/source/tools/test-tool/jose_maria___covid-19_.json', 'utf-8');
+    });
+
+    it('should fallback to encoded filename when no variations exist', async () => {
+      vi.mocked(path.join).mockImplementation((...args) => args.join('/'));
+      vi.mocked(fs.access).mockRejectedValue(new Error('ENOENT'));
+      vi.mocked(fs.readFile).mockResolvedValue('{"result": "fallback"}');
+      
+      const result = await executeStaticTool('/source', 'test-tool', { arg: 'Non-existent Title!' });
+      
+      expect(result).toEqual({ result: 'fallback' });
+      expect(fs.readFile).toHaveBeenCalledWith('/source/tools/test-tool/non-existent_title_.json', 'utf-8');
     });
   });
 
