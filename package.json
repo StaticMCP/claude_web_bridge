@@ -18,7 +18,7 @@
     "zod": "3.21.4"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "1.17.3",
+    "@modelcontextprotocol/sdk": "1.17.4",
     "@types/cors": "2.8.19",
     "@types/express": "5.0.3",
     "@types/node": "24.3.0",
