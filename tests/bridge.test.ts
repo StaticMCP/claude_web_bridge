@@ -456,6 +456,12 @@ describe('Bridge Core Functions', () => {
       expect(encodeFilename('Test & Development')).toBe('test___development');
     });
 
+    it('should preserve forward slashes for directory nesting', () => {
+      expect(encodeFilename('docs/standard')).toBe('docs/standard');
+      expect(encodeFilename('api/v1/users')).toBe('api/v1/users');
+      expect(encodeFilename('path/to/resource')).toBe('path/to/resource');
+    });
+
     it('should handle long filenames with hash', () => {
       const longTitle = 'A'.repeat(220);
       const encoded = encodeFilename(longTitle);
