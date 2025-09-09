@@ -208,7 +208,7 @@ export function encodeFilename(title) {
     const normalized = title.normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '');
     const safe = normalized.toLowerCase()
-        .replace(/[^a-z0-9\-_]/g, '_')
+        .replace(/[^a-z0-9\-_/]/g, '_')
         .replace(/\s+/g, '_');
     if (safe.length <= 200)
         return safe;
