@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 import { SchemaConverter } from '../src/converter';
 
 describe('SchemaConverter', () => {
@@ -23,7 +24,10 @@ describe('SchemaConverter', () => {
 
       const result = SchemaConverter.jsonSchemaToMcpInputSchema(schema);
       expect(result).toHaveProperty('name');
-      expect(result.name._def.typeName).toBe('ZodString');
+      expect(result.name).toBeInstanceOf(z.ZodString);
+      expect(result.name.description).toBe('User name');
+      expect(result.name.safeParse(undefined).success).toBe(false);
+      expect(result.name.safeParse('Ada').success).toBe(true);
       expect(result.name.isOptional()).toBe(false);
     });
 
@@ -40,8 +44,12 @@ describe('SchemaConverter', () => {
 
       const result = SchemaConverter.jsonSchemaToMcpInputSchema(schema);
       expect(result).toHaveProperty('age');
-      expect(result.age._def.typeName).toBe('ZodOptional');
-      expect(result.age._def.innerType._def.typeName).toBe('ZodNumber');
+      expect(result.age).toBeInstanceOf(z.ZodOptional);
+      expect(result.age.unwrap()).toBeInstanceOf(z.ZodNumber);
+      expect(result.age.unwrap().description).toBe('User age');
+      expect(result.age.safeParse(undefined).success).toBe(true);
+      expect(result.age.safeParse(1.5).success).toBe(true);
+      expect(result.age.safeParse('30').success).toBe(false);
       expect(result.age.isOptional()).toBe(true);
     });
 
@@ -59,7 +67,11 @@ describe('SchemaConverter', () => {
 
       const result = SchemaConverter.jsonSchemaToMcpInputSchema(schema);
       expect(result).toHaveProperty('count');
-      expect(result.count._def.typeName).toBe('ZodNumber');
+      expect(result.count).toBeInstanceOf(z.ZodNumber);
+      expect(result.count.description).toBe('Item count');
+      expect(result.count.safeParse(1.5).success).toBe(false);
+      expect(result.count.safeParse(2).success).toBe(true);
+      expect(result.count.safeParse(undefined).success).toBe(false);
       expect(result.count.isOptional()).toBe(false);
     });
 
@@ -76,8 +88,12 @@ describe('SchemaConverter', () => {
 
       const result = SchemaConverter.jsonSchemaToMcpInputSchema(schema);
       expect(result).toHaveProperty('active');
-      expect(result.active._def.typeName).toBe('ZodOptional');
-      expect(result.active._def.innerType._def.typeName).toBe('ZodBoolean');
+      expect(result.active).toBeInstanceOf(z.ZodOptional);
+      expect(result.active.unwrap()).toBeInstanceOf(z.ZodBoolean);
+      expect(result.active.unwrap().description).toBe('Is active');
+      expect(result.active.safeParse(undefined).success).toBe(true);
+      expect(result.active.safeParse(true).success).toBe(true);
+      expect(result.active.safeParse('yes').success).toBe(false);
       expect(result.active.isOptional()).toBe(true);
     });
 
@@ -94,8 +110,11 @@ describe('SchemaConverter', () => {
 
       const result = SchemaConverter.jsonSchemaToMcpInputSchema(schema);
       expect(result).toHaveProperty('data');
-      expect(result.data._def.typeName).toBe('ZodOptional');
-      expect(result.data._def.innerType._def.typeName).toBe('ZodAny');
+      expect(result.data).toBeInstanceOf(z.ZodOptional);
+      expect(result.data.unwrap()).toBeInstanceOf(z.ZodAny);
+      expect(result.data.unwrap().description).toBe('Some data');
+      expect(result.data.safeParse(undefined).success).toBe(true);
+      expect(result.data.safeParse({ anything: true }).success).toBe(true);
     });
 
     it('should handle mixed required and optional properties', () => {
@@ -115,7 +134,14 @@ describe('SchemaConverter', () => {
       };
 
       const result = SchemaConverter.jsonSchemaToMcpInputSchema(schema);
+      expect(result.required_field).toBeInstanceOf(z.ZodString);
+      expect(result.required_field.description).toBe('Required field');
+      expect(result.required_field.safeParse(undefined).success).toBe(false);
       expect(result.required_field.isOptional()).toBe(false);
+      expect(result.optional_field).toBeInstanceOf(z.ZodOptional);
+      expect(result.optional_field.unwrap()).toBeInstanceOf(z.ZodString);
+      expect(result.optional_field.unwrap().description).toBe('Optional field');
+      expect(result.optional_field.safeParse(undefined).success).toBe(true);
       expect(result.optional_field.isOptional()).toBe(true);
     });
 
